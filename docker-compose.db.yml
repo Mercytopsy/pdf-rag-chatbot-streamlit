@@ -6,8 +6,8 @@ services:
     volumes:
       - dev-db-data:/var/lib/postgresql/data
     environment:
-      - POSTGRES_DB=dev_chat_db
-      - POSTGRES_USER=dev_user
+      - POSTGRES_DB=rag_db
+      - POSTGRES_USER=user
       - POSTGRES_PASSWORD=Pass1234
     ports:
       - "5432:5432"
