@@ -8,13 +8,22 @@ from langchain.schema.runnable import RunnablePassthrough,RunnableLambda
 
 from langchain.vectorstores import Chroma
 # from langchain_chroma import Chroma
-from langchain.storage import InMemoryStore
+# from langchain.storage import InMemoryStore
+
+
+# from langchain_postgres.vectorstores import PGVector
+# from langchain.vectorstores.pgvector import PGVector
+from langchain_postgres.vectorstores import PGVector
+from database import COLLECTION_NAME, CONNECTION_STRING
+from langchain_community.utilities.redis import get_client
+from langchain_community.storage import RedisStore
 from langchain.schema.document import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain.retrievers.multi_vector import MultiVectorRetriever
 from pathlib import Path
 from IPython.display import display, HTML
 from base64 import b64decode
+import hashlib
 import chromadb
 import tempfile
 import shutil
@@ -85,19 +94,66 @@ def summarize_text_and_tables(text, tables):
         "text": summarize_chain.batch(text, {"max_concurrency": 5}),
         "table": summarize_chain.batch(tables, {"max_concurrency": 5})
     }
+  
 
+###Multivector Retriever
+
+def create_retriever(documents, summaries):
+    """
+    Creates a MultiVectorRetriever by storing document summaries in a vectorstore
+    and mapping original documents to their unique IDs in a docstore.
+
+    :param documents: List of original documents.
+    :param summaries: Optional list of summaries corresponding to documents.
+    :param collection_name: Name of the PGVector collection.
+    :param connection_string: Connection string for PGVector.
+    :param id_key: Metadata key for document IDs.
+    :return: Configured MultiVectorRetriever instance.
+    """
+    
+    client = get_client("redis://localhost:6379")
+    store = RedisStore(client=client)
+    id_key = "doc_id"
     
    
 
+    def add_vectors_to_db(documents, summaries):
+        """Helper function to store summaries as vector embeddings."""
+        if not summaries:
+            return None, []
+        
+        doc_ids = [str(uuid.uuid4()) for _ in documents]
+        summary_docs = [
+            Document(page_content=summary, metadata={id_key: doc_ids[i]})
+            for i, summary in enumerate(summaries)
+        ]
 
-##Multi-vector Retriever
-def create_retriever(text, text_summary, table, tables_summary):
-    vectorstore = Chroma(collection_name="rag",
-                         persist_directory=PERSIST_DIRECTORY,
-                         embedding_function=OpenAIEmbeddings() )
-    store = InMemoryStore()
-    id_key = "doc_id"
+        
+        vectorstore = PGVector(
+        embeddings=OpenAIEmbeddings(),
+        collection_name=COLLECTION_NAME,
+        connection=CONNECTION_STRING,
+        use_jsonb=True,
+        )
 
+        # vectorstore = PGVector.from_documents(
+        #     documents=summary_docs,
+        #     embedding=OpenAIEmbeddings(),
+        #     collection_name=COLLECTION_NAME,
+        #     connection_string=CONNECTION_STRING,
+        #     use_jsonb=True
+        # )
+  
+
+        vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
+        
+        return vectorstore, doc_ids
+
+    vectorstore, doc_ids = add_vectors_to_db(documents, summaries)
+
+    # Ensure a valid vectorstore is passed
+    if not vectorstore:
+        raise ValueError("No summaries provided; cannot create vectorstore.")
 
     retriever = MultiVectorRetriever(
         vectorstore=vectorstore,
@@ -105,22 +161,10 @@ def create_retriever(text, text_summary, table, tables_summary):
         id_key=id_key
     )
 
-    def add_documents_to_retriver(documents, summaries, retriever):
-        if summaries:
-            doc_ids = [str(uuid.uuid4()) for _ in documents]
-            summary_docs = [
-                Document(page_content=summary, metadata={id_key: doc_ids[i]})
-                for i, summary in enumerate(summaries)
-            ]
-            retriever.vectorstore.add_documents(summary_docs)
-            retriever.docstore.mset(list(zip(doc_ids, documents)))
-    
-    #add text and tables to retriever
-    add_documents_to_retriver(text, text_summary, retriever)
-    add_documents_to_retriver(table, tables_summary, retriever)
-  
-  
-    logging.info(f"Data added to vectorstore ")
+    # Store original documents in the docstore
+    if doc_ids:
+        retriever.docstore.mset(list(zip(doc_ids, documents)))
+
     return retriever
 
 
@@ -157,16 +201,28 @@ def chat_with_llm(retriever):
     prompt = ChatPromptTemplate.from_template(prompt_text)
     model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
  
-    rag_chain = (
-    {
-        "context": retriever | RunnableLambda(parse_retriver_output), 
-        "question": RunnablePassthrough()
-    }
-    | prompt
-    | model
-    | StrOutputParser()
-)
+#     rag_chain = (
+#     {
+#         "context": retriever | RunnableLambda(parse_retriver_output), 
+#         "question": RunnablePassthrough()
+#     }
+#     | prompt
+#     | model
+#     | StrOutputParser()
+# )
+    rag_chain = {
+       "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
+        } | RunnablePassthrough().assign(
+        response=(
+        prompt 
+        | model 
+        | StrOutputParser()
+        )
+        )
     logging.info(f"Completed! ")
+
+    print(rag_chain)
+    print('--------------------llm output-------------------')
     return rag_chain
 
 ### extract tables and text
@@ -177,61 +233,56 @@ def pdf_to_retriever(file_path):
     tables = [element.metadata.text_as_html for element in
                pdf_elements if 'Table' in str(type(element))]
     
-    text = [element for element in pdf_elements if 
+    text = [element.text for element in pdf_elements if 
             'CompositeElement' in str(type(element))]
    
-    
+
+
     summaries = summarize_text_and_tables(text, tables)
 
-    
-    retriever = create_retriever(text, summaries['text'], tables, summaries['table'])
-    
-    # rag_chain = chat_with_llm(retriever)
+
+    print(summaries)
+    print('____________________________________________')
+    print(tables)
+
+    print('-----------------------------------------------------')
+    print(text)
+
+    all_docs=text + tables
+    text_summary = summaries['text']
+    all_summaries = text_summary + summaries['table']
+    print(all_summaries)
+
+
+    print(len(all_docs))
+
+    retriever = create_retriever(all_docs, all_summaries)
+
+
+    # retriever = create_retriever(text, summaries['text'], tables, summaries['table'])
+    query = "What is the comparison of the composition of red meat and vegetarian protein sources"
+    docs = retriever.invoke(query)
+    check = [i for i in docs]
+    print('--------------------retriver output check-------------------')
+    print(check)
+
     
     return retriever
 
 
 
-
-
-# def invoke_chat(message):
-#     rag_chain = process_pdf_elements()
-#     response = rag_chain.invoke(message)
-#     response_placeholder = st.empty()
-#     response_placeholder.write(response)
-#     return response
-
-def create_vector_db(file_upload):
-    temp_dir = "temp"
-    os.makedirs(temp_dir, exist_ok=True)  # Ensure the directory exists
-
-    if isinstance(file_upload, str):
-        file_path = file_upload  # Already a string path
-    else:
-        file_path = os.path.join(temp_dir, file_upload.name)
-        with open(file_path, "wb") as f:
-            f.write(file_upload.getbuffer())
-
-    st.success(f"File saved to {file_path}")
-
+def invoke_chat(file_path, message):
     retriever = pdf_to_retriever(file_path)
-    print(retriever)
+    rag_chain = chat_with_llm(retriever)
+    response = rag_chain.invoke(message)
+    response_placeholder = st.empty()
+    response_placeholder.write(response)
+    return response
 
-    shutil.rmtree(temp_dir)
-
-    return retriever
 
 
-def invoke_chat(file_upload, message):
-    if file_upload is not None:
-        retriever = create_vector_db(file_upload)
-        print(retriever)
-        rag_chain = chat_with_llm(retriever)
 
-        response = rag_chain.invoke(message)
-        response_placeholder = st.empty()
-        response_placeholder.write(response)
-        return response
+
 
 
 def main():
@@ -242,24 +293,24 @@ def main():
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
-    if "vector_db" not in st.session_state:
-        st.session_state["vector_db"] = None
+    # if "vector_db" not in st.session_state:
+    #     st.session_state["vector_db"] = None
     
      # Create layout
     
-    file_upload = st.sidebar.file_uploader(
-    label="Upload", type=["pdf"], 
-    accept_multiple_files=False,
-    key="pdf_uploader"
-    )
+    # file_upload = st.sidebar.file_uploader(
+    # label="Upload", type=["pdf"], 
+    # accept_multiple_files=False,
+    # key="pdf_uploader"
+    # )
 
-    if file_upload:
-        st.success("File uploaded successfully! Processing...")
+    # if file_upload:
+    #     st.success("File uploaded successfully! Processing...")
         
-        # Uncomment and ensure `create_vector_db` is implemented if required
-        # st.session_state["vector_db"] = create_vector_db(file_upload)
+    #     # Uncomment and ensure `create_vector_db` is implemented if required
+    #     # st.session_state["vector_db"] = create_vector_db(file_upload)
         
-        st.success("File processed successfully! You can now ask your question.")
+    #     st.success("File processed successfully! You can now ask your question.")
 
     # Prompt for user input
     if prompt := st.chat_input("Your question"):
@@ -279,7 +330,7 @@ def main():
                 user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
                 
                 # Ensure `invoke_chat` handles file uploads properly
-                response_message = invoke_chat(file_upload if file_upload else None,user_message)
+                response_message = invoke_chat(FILE_PATH,user_message)
 
                 duration = time.time() - start_time
                 response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
@@ -288,50 +339,6 @@ def main():
                 st.write(f"Duration: {duration:.2f} seconds")
                 logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
 
-
-    # if file_upload:
-    #     # if st.session_state["vector_db"] is None:
-    #     # with st.spinner("Processing uploaded PDF..."):
-    #         # st.session_state["vector_db"] = create_vector_db(file_upload)
-    #     st.success("File uploaded and processed successfully! You can now ask your question.")
-
-
-    #     # Prompt for user input and save to chat history
-    #     if prompt:= st.chat_input("Your question"):
-    #         st.session_state.messages.append({"role": "user", "content": prompt})
-        
-    #     #Display the user's query
-    #     for message in st.session_state.messages:
-    #         with st.chat_message(message["role"]):
-    #             st.write(message["content"])
-
-    #     # Generate a new response if the last message is not from the assistant
-    #     # if st.session_state.messages[-1]["role"] != "assistant":
-    #     if st.session_state.messages and st.session_state.messages[-1]["role"] != "assistant":
-    #         with st.chat_message("assistant"):
-    #             start_time = time.time() #timing the response generation
-    #             logging.info("Generating response")
-    #             with st.spinner("Writing..."):
-                    
-    
-    #                 message= " ".join([msg["content"] for msg in st.session_state.messages if msg])
-    #                 # response_message = invoke_chat(message)
-    #                 response_message = invoke_chat(message, file_upload if file_upload else None)
-    #                 duration = time.time()-start_time #calculate the duration
-    #                 response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
-    #                 st.session_state.messages.append({"role": "assistant", "content": response_msg_with_duration})
-    #                 st.write(f"Duration: {duration:.2f} seconds")
-    #                 logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
-
-
-    #                 # if st.session_state["vector_db"] is not None:
-                    
-    #                 # response_message = invoke_chat(st.session_state["vector_db"], message)
-    #                 # duration = time.time()-start_time #calculate the duration
-    #                 # response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
-    #                 # st.session_state.messages.append({"role": "assistant", "content": response_msg_with_duration})
-    #                 # st.write(f"Duration: {duration:.2f} seconds")
-    #                 # logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
 
     
 
