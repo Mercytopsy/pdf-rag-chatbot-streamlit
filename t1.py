@@ -306,7 +306,7 @@ def main() -> None:
                     with pdfplumber.open(file_upload) as pdf:
                         st.session_state["pdf_pages"] = [page.to_image().original for page in pdf.pages]
 
-    # Display PDF if pages are available
+     # Display PDF if pages are available
     if "pdf_pages" in st.session_state and st.session_state["pdf_pages"]:
         # PDF display controls
         zoom_level = col1.slider(
