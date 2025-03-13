@@ -6,8 +6,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.schema.runnable import RunnablePassthrough,RunnableLambda
 
-# from langchain.vectorstores import Chroma
-from langchain_chroma import Chroma
+from langchain.vectorstores import Chroma
+# from langchain_chroma import Chroma
 from langchain.storage import InMemoryStore
 from langchain.schema.document import Document
 from langchain_openai import OpenAIEmbeddings
