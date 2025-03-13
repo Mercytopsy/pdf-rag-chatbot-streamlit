@@ -30,8 +30,10 @@ import shutil
 import streamlit as st
 import logging
 import uuid
+import json
 import time
 import torch
+import redis
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -46,6 +48,7 @@ FILE_PATH = Path("data/hbspapers_48__1.pdf")
 
 logging.basicConfig(level=logging.INFO)
 
+r = redis.Redis(host="localhost", port=6379, db=0)
 
 
 
@@ -210,19 +213,16 @@ def chat_with_llm(retriever):
 #     | model
 #     | StrOutputParser()
 # )
-    rag_chain = {
+    rag_chain = ({
        "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-        } | RunnablePassthrough().assign(
-        response=(
-        prompt 
+        } 
+        | prompt 
         | model 
         | StrOutputParser()
         )
-        )
+        
     logging.info(f"Completed! ")
 
-    print(rag_chain)
-    print('--------------------llm output-------------------')
     return rag_chain
 
 ### extract tables and text
@@ -241,20 +241,11 @@ def pdf_to_retriever(file_path):
     summaries = summarize_text_and_tables(text, tables)
 
 
-    print(summaries)
-    print('____________________________________________')
-    print(tables)
-
-    print('-----------------------------------------------------')
-    print(text)
 
     all_docs=text + tables
     text_summary = summaries['text']
     all_summaries = text_summary + summaries['table']
-    print(all_summaries)
 
-
-    print(len(all_docs))
 
     retriever = create_retriever(all_docs, all_summaries)
 
@@ -263,21 +254,87 @@ def pdf_to_retriever(file_path):
     query = "What is the comparison of the composition of red meat and vegetarian protein sources"
     docs = retriever.invoke(query)
     check = [i for i in docs]
-    print('--------------------retriver output check-------------------')
-    print(check)
-
     
     return retriever
 
 
 
 def invoke_chat(file_path, message):
-    retriever = pdf_to_retriever(file_path)
+    retriever = load__vectors(file_path)
+    # retriever = pdf_to_retriever(file_path)
     rag_chain = chat_with_llm(retriever)
     response = rag_chain.invoke(message)
     response_placeholder = st.empty()
     response_placeholder.write(response)
     return response
+
+# Function to get full PDF from Redis
+def fetch_full_pdf(pdf_hash):
+    pdf_data = r.get(f"pdf:{pdf_hash}")
+    # return pdf_data
+    return json.loads(pdf_data)["text"] if pdf_data else None
+
+
+def get_pdf_hash(pdf_path):
+    """Generate a SHA-256 hash of the PDF file content."""
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+    return hashlib.sha256(pdf_bytes).hexdigest()
+
+def old_retriever(pdf_hash):
+    pdf_text = fetch_full_pdf(pdf_hash)
+    if pdf_text is None:
+        print("Error: PDF not found in Redis!")
+        return None
+
+    vectorstore = PGVector(
+        embeddings=OpenAIEmbeddings(),
+        collection_name=COLLECTION_NAME,
+        connection=CONNECTION_STRING
+    )
+    # Create MultiVectorRetriever
+    client = get_client("redis://localhost:6379")
+    store = RedisStore(client=client)
+    # id_key = "doc_id"
+
+
+    # retriever = MultiVectorRetriever(
+    #         vectorstore=vectorstore,
+    #         docstore=store,
+    #         id_key=id_key
+    #     )
+    retriever = MultiVectorRetriever(
+        vectorstore=vectorstore,
+        docstore=store,
+        id_key = "doc_id"  # Pass function, NOT the result
+    )
+    return retriever
+
+
+def load__vectors(file_path):
+    print('Processing PDF hash info...')
+    pdf_hash = get_pdf_hash(file_path)
+
+    # Debug: Check if Redis already has the key
+    existing = r.exists(f"pdf:{pdf_hash}")
+    print(f"Checking Redis for hash {pdf_hash}: {'Exists' if existing else 'Not found'}")
+
+    if existing:
+        print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
+        return old_retriever(pdf_hash)
+
+    print(f"New PDF detected. Processing... {pdf_hash}")
+
+    retriever = pdf_to_retriever(file_path)
+
+    # Store the PDF hash in Redis
+    r.set(f"pdf:{pdf_hash}", json.dumps({"text": "PDF processed"}))  
+
+    # Debug: Check if Redis stored the key
+    stored = r.exists(f"pdf:{pdf_hash}")
+    print(f"Stored PDF hash in Redis: {'Success' if stored else 'Failed'}")
+
+    return retriever
 
 
 
