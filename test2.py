@@ -213,19 +213,16 @@ def chat_with_llm(retriever):
 #     | model
 #     | StrOutputParser()
 # )
-    rag_chain = {
+    rag_chain = ({
        "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-        } | RunnablePassthrough().assign(
-        response=(
-        prompt 
+        } 
+        | prompt 
         | model 
         | StrOutputParser()
         )
-        )
+        
     logging.info(f"Completed! ")
 
-    print(rag_chain)
-    print('--------------------llm output-------------------')
     return rag_chain
 
 ### extract tables and text
@@ -244,20 +241,11 @@ def pdf_to_retriever(file_path):
     summaries = summarize_text_and_tables(text, tables)
 
 
-    print(summaries)
-    print('____________________________________________')
-    print(tables)
-
-    print('-----------------------------------------------------')
-    print(text)
 
     all_docs=text + tables
     text_summary = summaries['text']
     all_summaries = text_summary + summaries['table']
-    print(all_summaries)
 
-
-    print(len(all_docs))
 
     retriever = create_retriever(all_docs, all_summaries)
 
@@ -266,9 +254,6 @@ def pdf_to_retriever(file_path):
     query = "What is the comparison of the composition of red meat and vegetarian protein sources"
     docs = retriever.invoke(query)
     check = [i for i in docs]
-    print('--------------------retriver output check-------------------')
-    print(check)
-
     
     return retriever
 
@@ -286,14 +271,14 @@ def invoke_chat(file_path, message):
 # Function to get full PDF from Redis
 def fetch_full_pdf(pdf_hash):
     pdf_data = r.get(f"pdf:{pdf_hash}")
-    return pdf_data
-    # return json.loads(pdf_data)["text"] if pdf_data else None
+    # return pdf_data
+    return json.loads(pdf_data)["text"] if pdf_data else None
 
-def fetch_full_pdf(pdf_hash):
-    pdf_data = r.get(f"pdf:{pdf_hash}")
-    if pdf_data:
-        return json.loads(pdf_data)  # Return full document data
-    return None  # Handle missing cases properly
+# def fetch_full_pdf(pdf_hash):
+#     pdf_data = r.get(f"pdf:{pdf_hash}")
+#     if pdf_data:
+#         return json.loads(pdf_data)  # Return full document data
+#     return None  # Handle missing cases properly
 
 def get_pdf_hash(pdf_path):
     """Generate a SHA-256 hash of the PDF file content."""
@@ -313,9 +298,20 @@ def old_retriever(pdf_hash):
         connection=CONNECTION_STRING
     )
     # Create MultiVectorRetriever
+    client = get_client("redis://localhost:6379")
+    store = RedisStore(client=client)
+    # id_key = "doc_id"
+
+
+    # retriever = MultiVectorRetriever(
+    #         vectorstore=vectorstore,
+    #         docstore=store,
+    #         id_key=id_key
+    #     )
     retriever = MultiVectorRetriever(
         vectorstore=vectorstore,
-        docstore=pdf_text  # Pass function, NOT the result
+        docstore=store,
+        id_key = "doc_id"  # Pass function, NOT the result
     )
     return retriever
 
