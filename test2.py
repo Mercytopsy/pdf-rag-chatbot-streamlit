@@ -23,6 +23,7 @@ from langchain.retrievers.multi_vector import MultiVectorRetriever
 from pathlib import Path
 from IPython.display import display, HTML
 from base64 import b64decode
+import hashlib
 import chromadb
 import tempfile
 import shutil
@@ -45,6 +46,7 @@ FILE_PATH = Path("data/hbspapers_48__1.pdf")
 
 logging.basicConfig(level=logging.INFO)
 
+r = redis.Redis(host="localhost", port=6379, db=0)
 
 
 
@@ -266,35 +268,57 @@ def pdf_to_retriever(file_path):
     print(check)
 
     
-    # rag_chain = chat_with_llm(retriever)
-
-    # return rag_chain
-    
     return retriever
 
 
 
 def invoke_chat(file_path, message):
-    retriever = pdf_to_retriever(file_path)
+    retriever = load__vectors(file_path)
+    # retriever = pdf_to_retriever(file_path)
     rag_chain = chat_with_llm(retriever)
     response = rag_chain.invoke(message)
     response_placeholder = st.empty()
     response_placeholder.write(response)
     return response
 
+# Function to get full PDF from Redis
+def fetch_full_pdf(pdf_hash):
+    pdf_data = r.get(f"pdf:{pdf_hash}")
+    return json.loads(pdf_data)["text"] if pdf_data else None
+
+def get_pdf_hash(pdf_path):
+    """Generate a SHA-256 hash of the PDF file content."""
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+    return hashlib.sha256(pdf_bytes).hexdigest()
+
+def old_retriever():
+    vectorstore = PGVector(
+        embedding_function=OpenAIEmbeddings(),
+        collection_name=COLLECTION_NAME,
+        connection_string=CONNECTION_STRING
+    )
+    # Create MultiVectorRetriever
+    retriever = MultiVectorRetriever(
+        vectorstore=vectorstore,
+        docstore=fetch_full_pdf  # Pass function, NOT the result
+    )
+    return retriever
+
+
+def load__vectors(file_path):
+    pdf_hash = get_pdf_hash(file_path)
+    
+    if r.exists(f"pdf:{pdf_hash}"):
+        print("PDF already exists. Skipping upload.")
+        return old_retriever()  # Just return the old retriever
+    else:
+        print("New PDF detected. Processing...")
+        return pdf_to_retriever(file_path)  #
 
 
 
-# def invoke_chat(file_upload, message):
-#     # if file_upload is not None:
-#     #     retriever = create_vector_db(file_upload)
-#     #     print(retriever)
-#     rag_chain = chat_with_llm(retriever)
 
-#     response = rag_chain.invoke(message)
-#     response_placeholder = st.empty()
-#     response_placeholder.write(response)
-#     return response
 
 
 def main():
