@@ -128,7 +128,7 @@ def create_retriever(documents, summaries):
         ]
 
         
-        vector_store = PGVector(
+        vectorstore = PGVector(
         embeddings=OpenAIEmbeddings(),
         collection_name=COLLECTION_NAME,
         connection=CONNECTION_STRING,
@@ -144,7 +144,7 @@ def create_retriever(documents, summaries):
         # )
   
 
-        vector_store.add_documents(documents=summary_docs, ids=doc_ids)
+        vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
         
         return vectorstore, doc_ids
 
@@ -232,10 +232,11 @@ def pdf_to_retriever(file_path):
     tables = [element.metadata.text_as_html for element in
                pdf_elements if 'Table' in str(type(element))]
     
-    text = [element for element in pdf_elements if 
+    text = [element.text for element in pdf_elements if 
             'CompositeElement' in str(type(element))]
    
-   
+
+
     summaries = summarize_text_and_tables(text, tables)
 
 

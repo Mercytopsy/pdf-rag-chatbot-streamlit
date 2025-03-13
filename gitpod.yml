@@ -17,3 +17,8 @@ tasks:
       sudo apt install -y libgl1
       docker run --name pgvector-container -e POSTGRES_USER=langchain -e POSTGRES_PASSWORD=langchain -e POSTGRES_DB=langchain -p 6024:5432 -d pgvector/pgvector:pg16
       pip install redis>=4.1.0
+      curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+      echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+      sudo apt-get update  > /dev/null 2>&1
+      sudo apt-get install redis-stack-server  > /dev/null 2>&1
+      redis-stack-server --daemonize yes
