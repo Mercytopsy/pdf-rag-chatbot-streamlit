@@ -6,11 +6,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.schema.runnable import RunnablePassthrough,RunnableLambda
 
-# from langchain.vectorstores import Chroma
-from langchain_chroma import Chroma
-# from langchain.storage import InMemoryStore
-from langchain.storage import LocalFileStore
-from langchain.storage._lc_store import create_kv_docstore
+from langchain.vectorstores import Chroma
+# from langchain_chroma import Chroma
+from langchain.storage import InMemoryStore
+# from langchain.storage import LocalFileStore
+# from langchain.storage._lc_store import create_kv_docstore
 
 from langchain.schema.document import Document
 from langchain_openai import OpenAIEmbeddings
@@ -95,23 +95,51 @@ def summarize_text_and_tables(text, tables):
 
 ##Multi-vector Retriever
 def create_retriever(text, text_summary, table, tables_summary):
-    vectorstore = Chroma(collection_name="rag",
-                         persist_directory=PERSIST_DIRECTORY,
-                         embedding_function=OpenAIEmbeddings() )
-    # store = InMemoryStore()
-    fs = LocalFileStore("./data")
-    store = create_kv_docstore(fs)
+    """Creates and loads a retriever with persistent Chroma storage."""
     
-    id_key = "doc_id"
+    id_key = "doc_id"  # Unique identifier for each document
 
+    # Ensure persistence folder exists
+    persist_path = Path(PERSIST_DIRECTORY)
+    persist_path.mkdir(parents=True, exist_ok=True)
 
+    # Step 1: Load existing vectorstore OR create a new one if empty
+    try:
+        vectorstore = Chroma(
+            collection_name="rag",
+            persist_directory=PERSIST_DIRECTORY,
+            embedding_function=OpenAIEmbeddings()
+        )
+
+        # Check if the vectorstore has data
+        if vectorstore._collection.count() == 0:
+            logging.info("No existing documents found. Initializing new storage.")
+            add_data = True
+        else:
+            logging.info("Existing stored vectors found. Loading persisted data.")
+            add_data = False
+
+    except Exception as e:
+        logging.error(f"Error loading vectorstore: {e}")
+        add_data = True
+        vectorstore = Chroma.from_documents(
+            collection_name="rag",
+            persist_directory=PERSIST_DIRECTORY,
+            embedding_function=OpenAIEmbeddings()
+        )
+
+    # Step 2: Initialize document store
+    store = InMemoryStore()
+
+    # Step 3: Initialize MultiVectorRetriever
     retriever = MultiVectorRetriever(
         vectorstore=vectorstore,
         docstore=store,
         id_key=id_key
     )
 
-    def add_documents_to_retriver(documents, summaries, retriever):
+    # Step 4: Function to add documents to retriever
+    def add_documents_to_retriever(documents, summaries, retriever):
         if summaries:
             doc_ids = [str(uuid.uuid4()) for _ in documents]
             summary_docs = [
@@ -120,13 +148,17 @@ def create_retriever(text, text_summary, table, tables_summary):
             ]
             retriever.vectorstore.add_documents(summary_docs)
             retriever.docstore.mset(list(zip(doc_ids, documents)))
-    
-    #add text and tables to retriever
-    add_documents_to_retriver(text, text_summary, retriever)
-    add_documents_to_retriver(table, tables_summary, retriever)
-  
-  
-    logging.info(f"Data added to vectorstore ")
+
+    # Step 5: Add new documents only if necessary
+    if add_data:
+        add_documents_to_retriever(text, text_summary, retriever)
+        add_documents_to_retriever(table, tables_summary, retriever)
+        vectorstore.persist()  # Explicitly save the vectorstore
+
+        logging.info(f"New data added and persisted to {PERSIST_DIRECTORY}")
+    else:
+        logging.info(f"Using existing data from {PERSIST_DIRECTORY}")
+
     return retriever
 
 
