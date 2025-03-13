@@ -12,7 +12,8 @@ from langchain.vectorstores import Chroma
 
 
 # from langchain_postgres.vectorstores import PGVector
-from langchain.vectorstores.pgvector import PGVector
+# from langchain.vectorstores.pgvector import PGVector
+from langchain_postgres.vectorstores import PGVector
 from database import COLLECTION_NAME, CONNECTION_STRING
 from langchain_community.utilities.redis import get_client
 from langchain_community.storage import RedisStore
@@ -112,6 +113,7 @@ def create_retriever(documents, summaries):
     client = get_client("redis://localhost:6379")
     store = RedisStore(client=client)
     id_key = "doc_id"
+    
    
 
     def add_vectors_to_db(documents, summaries):
@@ -125,14 +127,25 @@ def create_retriever(documents, summaries):
             for i, summary in enumerate(summaries)
         ]
 
-        vectorstore = PGVector.from_documents(
-            documents=summary_docs,
-            embedding=OpenAIEmbeddings(),
-            collection_name=COLLECTION_NAME,
-            connection_string=CONNECTION_STRING,
-            use_jsonb=True
+        
+        vector_store = PGVector(
+        embeddings=OpenAIEmbeddings(),
+        collection_name=COLLECTION_NAME,
+        connection=CONNECTION_STRING,
+        use_jsonb=True,
         )
 
+        # vectorstore = PGVector.from_documents(
+        #     documents=summary_docs,
+        #     embedding=OpenAIEmbeddings(),
+        #     collection_name=COLLECTION_NAME,
+        #     connection_string=CONNECTION_STRING,
+        #     use_jsonb=True
+        # )
+  
+
+        vector_store.add_documents(documents=summary_docs, ids=doc_ids)
+        
         return vectorstore, doc_ids
 
     vectorstore, doc_ids = add_vectors_to_db(documents, summaries)
