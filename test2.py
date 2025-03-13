@@ -30,8 +30,10 @@ import shutil
 import streamlit as st
 import logging
 import uuid
+import json
 import time
 import torch
+import redis
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -284,7 +286,14 @@ def invoke_chat(file_path, message):
 # Function to get full PDF from Redis
 def fetch_full_pdf(pdf_hash):
     pdf_data = r.get(f"pdf:{pdf_hash}")
-    return json.loads(pdf_data)["text"] if pdf_data else None
+    return pdf_data
+    # return json.loads(pdf_data)["text"] if pdf_data else None
+
+def fetch_full_pdf(pdf_hash):
+    pdf_data = r.get(f"pdf:{pdf_hash}")
+    if pdf_data:
+        return json.loads(pdf_data)  # Return full document data
+    return None  # Handle missing cases properly
 
 def get_pdf_hash(pdf_path):
     """Generate a SHA-256 hash of the PDF file content."""
@@ -292,29 +301,50 @@ def get_pdf_hash(pdf_path):
         pdf_bytes = f.read()
     return hashlib.sha256(pdf_bytes).hexdigest()
 
-def old_retriever():
+def old_retriever(pdf_hash):
+    pdf_text = fetch_full_pdf(pdf_hash)
+    if pdf_text is None:
+        print("Error: PDF not found in Redis!")
+        return None
+
     vectorstore = PGVector(
-        embedding_function=OpenAIEmbeddings(),
+        embeddings=OpenAIEmbeddings(),
         collection_name=COLLECTION_NAME,
-        connection_string=CONNECTION_STRING
+        connection=CONNECTION_STRING
     )
     # Create MultiVectorRetriever
     retriever = MultiVectorRetriever(
         vectorstore=vectorstore,
-        docstore=fetch_full_pdf  # Pass function, NOT the result
+        docstore=pdf_text  # Pass function, NOT the result
     )
     return retriever
 
 
 def load__vectors(file_path):
+    print('Processing PDF hash info...')
     pdf_hash = get_pdf_hash(file_path)
-    
-    if r.exists(f"pdf:{pdf_hash}"):
-        print("PDF already exists. Skipping upload.")
-        return old_retriever()  # Just return the old retriever
-    else:
-        print("New PDF detected. Processing...")
-        return pdf_to_retriever(file_path)  #
+
+    # Debug: Check if Redis already has the key
+    existing = r.exists(f"pdf:{pdf_hash}")
+    print(f"Checking Redis for hash {pdf_hash}: {'Exists' if existing else 'Not found'}")
+
+    if existing:
+        print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
+        return old_retriever(pdf_hash)
+
+    print(f"New PDF detected. Processing... {pdf_hash}")
+
+    retriever = pdf_to_retriever(file_path)
+
+    # Store the PDF hash in Redis
+    r.set(f"pdf:{pdf_hash}", json.dumps({"text": "PDF processed"}))  
+
+    # Debug: Check if Redis stored the key
+    stored = r.exists(f"pdf:{pdf_hash}")
+    print(f"Stored PDF hash in Redis: {'Success' if stored else 'Failed'}")
+
+    return retriever
+
 
 
 
