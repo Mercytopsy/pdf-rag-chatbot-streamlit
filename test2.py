@@ -102,26 +102,22 @@ def summarize_text_and_tables(text, tables):
 ###Multivector Retriever
 
 def create_retriever(documents, summaries):
-    """
-    Creates a MultiVectorRetriever by storing document summaries in a vectorstore
-    and mapping original documents to their unique IDs in a docstore.
-
-    :param documents: List of original documents.
-    :param summaries: Optional list of summaries corresponding to documents.
-    :param collection_name: Name of the PGVector collection.
-    :param connection_string: Connection string for PGVector.
-    :param id_key: Metadata key for document IDs.
-    :return: Configured MultiVectorRetriever instance.
-    """
-    
+    """Creates a multi-vector retriever and adds documents."""
     client = get_client("redis://localhost:6379")
     store = RedisStore(client=client)
     id_key = "doc_id"
-    
-   
 
-    def add_vectors_to_db(documents, summaries):
-        """Helper function to store summaries as vector embeddings."""
+    vectorstore = PGVector(
+        embeddings=OpenAIEmbeddings(),
+        collection_name=COLLECTION_NAME,
+        connection=CONNECTION_STRING,
+        use_jsonb=True,
+        )
+    retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
+    return retriever
+
+    def add_documents(documents, summaries):
+        """Helper function to add documents and summaries to the retriever."""
         if not summaries:
             return None, []
         
@@ -131,44 +127,86 @@ def create_retriever(documents, summaries):
             for i, summary in enumerate(summaries)
         ]
 
-        
-        vectorstore = PGVector(
-        embeddings=OpenAIEmbeddings(),
-        collection_name=COLLECTION_NAME,
-        connection=CONNECTION_STRING,
-        use_jsonb=True,
-        )
+        # vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
+        retriever.vectorstore.add_documents(summary_docs, ids=doc_ids)
+        retriever.docstore.mset(list(zip(doc_ids, documents)))
+         
 
-        # vectorstore = PGVector.from_documents(
-        #     documents=summary_docs,
-        #     embedding=OpenAIEmbeddings(),
-        #     collection_name=COLLECTION_NAME,
-        #     connection_string=CONNECTION_STRING,
-        #     use_jsonb=True
-        # )
+    add_documents(documents, summaries)
+ 
+    logging.info("Retriever setup complete.")
+    return retriever
+
+
+
+# def create_retriever(documents, summaries):
+#     """
+#     Creates a MultiVectorRetriever by storing document summaries in a vectorstore
+#     and mapping original documents to their unique IDs in a docstore.
+
+#     :param documents: List of original documents.
+#     :param summaries: Optional list of summaries corresponding to documents.
+#     :param collection_name: Name of the PGVector collection.
+#     :param connection_string: Connection string for PGVector.
+#     :param id_key: Metadata key for document IDs.
+#     :return: Configured MultiVectorRetriever instance.
+#     """
+    
+#     client = get_client("redis://localhost:6379")
+#     store = RedisStore(client=client)
+#     id_key = "doc_id"
+    
+   
+
+#     def add_vectors_to_db(documents, summaries):
+#         """Helper function to store summaries as vector embeddings."""
+#         if not summaries:
+#             return None, []
+        
+#         doc_ids = [str(uuid.uuid4()) for _ in documents]
+#         summary_docs = [
+#             Document(page_content=summary, metadata={id_key: doc_ids[i]})
+#             for i, summary in enumerate(summaries)
+#         ]
+
+        
+#         vectorstore = PGVector(
+#         embeddings=OpenAIEmbeddings(),
+#         collection_name=COLLECTION_NAME,
+#         connection=CONNECTION_STRING,
+#         use_jsonb=True,
+#         )
+
+#         # vectorstore = PGVector.from_documents(
+#         #     documents=summary_docs,
+#         #     embedding=OpenAIEmbeddings(),
+#         #     collection_name=COLLECTION_NAME,
+#         #     connection_string=CONNECTION_STRING,
+#         #     use_jsonb=True
+#         # )
   
 
-        vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
+#         vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
         
-        return vectorstore, doc_ids
+#         return vectorstore, doc_ids
 
-    vectorstore, doc_ids = add_vectors_to_db(documents, summaries)
+#     vectorstore, doc_ids = add_vectors_to_db(documents, summaries)
 
-    # Ensure a valid vectorstore is passed
-    if not vectorstore:
-        raise ValueError("No summaries provided; cannot create vectorstore.")
+#     # Ensure a valid vectorstore is passed
+#     if not vectorstore:
+#         raise ValueError("No summaries provided; cannot create vectorstore.")
 
-    retriever = MultiVectorRetriever(
-        vectorstore=vectorstore,
-        docstore=store,
-        id_key=id_key
-    )
+#     retriever = MultiVectorRetriever(
+#         vectorstore=vectorstore,
+#         docstore=store,
+#         id_key=id_key
+#     )
 
-    # Store original documents in the docstore
-    if doc_ids:
-        retriever.docstore.mset(list(zip(doc_ids, documents)))
+#     # Store original documents in the docstore
+#     if doc_ids:
+#         retriever.docstore.mset(list(zip(doc_ids, documents)))
 
-    return retriever
+#     return retriever
 
 
 
@@ -274,11 +312,6 @@ def fetch_full_pdf(pdf_hash):
     # return pdf_data
     return json.loads(pdf_data)["text"] if pdf_data else None
 
-# def fetch_full_pdf(pdf_hash):
-#     pdf_data = r.get(f"pdf:{pdf_hash}")
-#     if pdf_data:
-#         return json.loads(pdf_data)  # Return full document data
-#     return None  # Handle missing cases properly
 
 def get_pdf_hash(pdf_path):
     """Generate a SHA-256 hash of the PDF file content."""
