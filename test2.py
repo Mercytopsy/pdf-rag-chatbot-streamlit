@@ -10,8 +10,9 @@ from langchain.vectorstores import Chroma
 # from langchain_chroma import Chroma
 # from langchain.storage import InMemoryStore
 
-from langchain_postgres import PGVector
-from langchain_postgres.vectorstores import PGVector
+
+# from langchain_postgres.vectorstores import PGVector
+from langchain.vectorstores.pgvector import PGVector
 from database import COLLECTION_NAME, CONNECTION_STRING
 from langchain_community.utilities.redis import get_client
 from langchain_community.storage import RedisStore
@@ -93,25 +94,52 @@ def summarize_text_and_tables(text, tables):
     }
   
 
-##Multi-vector Retriever
+###Multivector Retriever
 
-def create_retriever(text, text_summary, table, tables_summary):
+def create_retriever(documents, summaries):
+    """
+    Creates a MultiVectorRetriever by storing document summaries in a vectorstore
+    and mapping original documents to their unique IDs in a docstore.
 
-    vectorstore = PGVector(
-    embeddings = OpenAIEmbeddings(),
-    collection_name = COLLECTION_NAME,
-    connection = CONNECTION_STRING,
-    use_jsonb = True,
-)
-
-
-
+    :param documents: List of original documents.
+    :param summaries: Optional list of summaries corresponding to documents.
+    :param collection_name: Name of the PGVector collection.
+    :param connection_string: Connection string for PGVector.
+    :param id_key: Metadata key for document IDs.
+    :return: Configured MultiVectorRetriever instance.
+    """
+    
     client = get_client("redis://localhost:6379")
-    # Initialize RedisStore
     store = RedisStore(client=client)
-
     id_key = "doc_id"
+   
 
+    def add_vectors_to_db(documents, summaries):
+        """Helper function to store summaries as vector embeddings."""
+        if not summaries:
+            return None, []
+        
+        doc_ids = [str(uuid.uuid4()) for _ in documents]
+        summary_docs = [
+            Document(page_content=summary, metadata={id_key: doc_ids[i]})
+            for i, summary in enumerate(summaries)
+        ]
+
+        vectorstore = PGVector.from_documents(
+            documents=summary_docs,
+            embedding=OpenAIEmbeddings(),
+            collection_name=COLLECTION_NAME,
+            connection_string=CONNECTION_STRING,
+            use_jsonb=True
+        )
+
+        return vectorstore, doc_ids
+
+    vectorstore, doc_ids = add_vectors_to_db(documents, summaries)
+
+    # Ensure a valid vectorstore is passed
+    if not vectorstore:
+        raise ValueError("No summaries provided; cannot create vectorstore.")
 
     retriever = MultiVectorRetriever(
         vectorstore=vectorstore,
@@ -119,23 +147,12 @@ def create_retriever(text, text_summary, table, tables_summary):
         id_key=id_key
     )
 
-    def add_documents_to_retriver(documents, summaries, retriever):
-        if summaries:
-            doc_ids = [str(uuid.uuid4()) for _ in documents]
-            summary_docs = [
-                Document(page_content=summary, metadata={id_key: doc_ids[i]})
-                for i, summary in enumerate(summaries)
-            ]
-            retriever.vectorstore.add_documents(summary_docs)
-            retriever.docstore.mset(list(zip(doc_ids, documents)))
-    
-    #add text and tables to retriever
-    add_documents_to_retriver(text, text_summary, retriever)
-    add_documents_to_retriver(table, tables_summary, retriever)
-  
-  
-    logging.info(f"Data added to vectorstore ")
+    # Store original documents in the docstore
+    if doc_ids:
+        retriever.docstore.mset(list(zip(doc_ids, documents)))
+
     return retriever
+
 
 
 ###RAG pipeline
@@ -205,12 +222,29 @@ def pdf_to_retriever(file_path):
     text = [element for element in pdf_elements if 
             'CompositeElement' in str(type(element))]
    
-    
+   
     summaries = summarize_text_and_tables(text, tables)
 
-    print(summaries)
 
-    retriever = create_retriever(text, summaries['text'], tables, summaries['table'])
+    print(summaries)
+    print('____________________________________________')
+    print(tables)
+
+    print('-----------------------------------------------------')
+    print(text)
+
+    all_docs=text + tables
+    text_summary = summaries['text']
+    all_summaries = text_summary + summaries['table']
+    print(all_summaries)
+
+
+    print(len(all_docs))
+
+    retriever = create_retriever(all_docs, all_summaries)
+
+
+    # retriever = create_retriever(text, summaries['text'], tables, summaries['table'])
     query = "What is the comparison of the composition of red meat and vegetarian protein sources"
     docs = retriever.invoke(query)
     check = [i for i in docs]
