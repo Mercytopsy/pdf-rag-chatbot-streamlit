@@ -13,3 +13,6 @@ tasks:
       sudo apt update
       sudo apt install poppler-utils
       sudo apt update && sudo apt install -y tesseract-ocr
+      sudo apt update
+      sudo apt install -y libgl1
+      docker run --name pgvector-container -e POSTGRES_USER=langchain -e POSTGRES_PASSWORD=langchain -e POSTGRES_DB=langchain -p 6024:5432 -d pgvector/pgvector:pg16
