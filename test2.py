@@ -119,19 +119,21 @@ def create_retriever(text, text_summary, table, table_summary):
         retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
 
         def add_documents_to_retriever(documents, summaries, retriever):
-            if summaries:
-                doc_ids = [str(uuid.uuid4()) for _ in documents]
-                summary_docs = [
-                    Document(page_content=summary, metadata={id_key: doc_ids[i]})
-                    for i, summary in enumerate(summaries)
-                ]
+            if not summaries:
+                return None, []
+            doc_ids = [str(uuid.uuid4()) for _ in documents]
+            summary_docs = [
+                Document(page_content=summary, metadata={id_key: doc_ids[i]})
+                for i, summary in enumerate(summaries)
+            ]
 
-                retriever.vectorstore.add_documents(summary_docs, ids=doc_ids)
-                retriever.docstore.mset(list(zip(doc_ids, documents)))       
+            retriever.vectorstore.add_documents(summary_docs, ids=doc_ids)
+            retriever.docstore.mset(list(zip(doc_ids, documents)))     
 
     # Add text, table, and image summaries to the retriever
         add_documents_to_retriever(text, text_summary, retriever)
         add_documents_to_retriever(table, table_summary, retriever)
+        return retriever
 
 # def create_retriever(documents, summaries):
 #     """Creates a multi-vector retriever and adds documents."""
@@ -310,6 +312,7 @@ def pdf_to_retriever(file_path):
     summaries = summarize_text_and_tables(text, tables)
     print(summaries)
 
+   
     retriever = create_retriever(text, summaries['text'], tables,  summaries['table'])
 
     print(retriever)
