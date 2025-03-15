@@ -45,6 +45,9 @@ PERSIST_DIRECTORY = os.path.join("data", "vectors")
 
 FILE_PATH = Path("data/hbspapers_48__1.pdf") 
 
+# FILE_PATH = Path("data/layout-parser-paper.pdf") 
+
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -101,41 +104,71 @@ def summarize_text_and_tables(text, tables):
 
 ###Multivector Retriever
 
-def create_retriever(documents, summaries):
-    """Creates a multi-vector retriever and adds documents."""
-    client = get_client("redis://localhost:6379")
-    store = RedisStore(client=client)
-    id_key = "doc_id"
+def create_retriever(text, text_summary, table, table_summary):
+        """Creates a multi-vector retriever and adds documents."""
+        client = get_client("redis://localhost:6379")
+        store = RedisStore(client=client)
+        id_key = "doc_id"
 
-    vectorstore = PGVector(
-        embeddings=OpenAIEmbeddings(),
-        collection_name=COLLECTION_NAME,
-        connection=CONNECTION_STRING,
-        use_jsonb=True,
-        )
-    retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
-    return retriever
+        vectorstore = PGVector(
+            embeddings=OpenAIEmbeddings(),
+            collection_name=COLLECTION_NAME,
+            connection=CONNECTION_STRING,
+            use_jsonb=True,
+            )
+        retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
 
-    def add_documents(documents, summaries):
-        """Helper function to add documents and summaries to the retriever."""
-        if not summaries:
-            return None, []
+        def add_documents_to_retriever(documents, summaries, retriever):
+            if summaries:
+                doc_ids = [str(uuid.uuid4()) for _ in documents]
+                summary_docs = [
+                    Document(page_content=summary, metadata={id_key: doc_ids[i]})
+                    for i, summary in enumerate(summaries)
+                ]
+
+                retriever.vectorstore.add_documents(summary_docs, ids=doc_ids)
+                retriever.docstore.mset(list(zip(doc_ids, documents)))       
+
+    # Add text, table, and image summaries to the retriever
+        add_documents_to_retriever(text, text_summary, retriever)
+        add_documents_to_retriever(table, table_summary, retriever)
+
+# def create_retriever(documents, summaries):
+#     """Creates a multi-vector retriever and adds documents."""
+#     client = get_client("redis://localhost:6379")
+#     store = RedisStore(client=client)
+#     id_key = "doc_id"
+
+#     vectorstore = PGVector(
+#         embeddings=OpenAIEmbeddings(),
+#         collection_name=COLLECTION_NAME,
+#         connection=CONNECTION_STRING,
+#         use_jsonb=True,
+#         )
+#     retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
+
+#     if not summaries:
+#         return None, []
+    
+#     doc_ids = [str(uuid.uuid4()) for _ in documents]
+#     summary_docs = [
+#         Document(page_content=summary, metadata={id_key: doc_ids[i]})
+#         for i, summary in enumerate(summaries)
+#     ]
+
+#     #vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
+#     retriever.vectorstore.add_documents(summary_docs, ids=doc_ids)
+#     retriever.docstore.mset(list(zip(doc_ids, documents)))
         
-        doc_ids = [str(uuid.uuid4()) for _ in documents]
-        summary_docs = [
-            Document(page_content=summary, metadata={id_key: doc_ids[i]})
-            for i, summary in enumerate(summaries)
-        ]
 
-        # vectorstore.add_documents(documents=summary_docs, ids=doc_ids)
-        retriever.vectorstore.add_documents(summary_docs, ids=doc_ids)
-        retriever.docstore.mset(list(zip(doc_ids, documents)))
-         
 
-    add_documents(documents, summaries)
- 
-    logging.info("Retriever setup complete.")
-    return retriever
+# # logging.info("Retriever setup complete.")
+#     return retriever
+
+
+
+
+
 
 
 
@@ -242,21 +275,21 @@ def chat_with_llm(retriever):
     prompt = ChatPromptTemplate.from_template(prompt_text)
     model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
  
-#     rag_chain = (
-#     {
-#         "context": retriever | RunnableLambda(parse_retriver_output), 
-#         "question": RunnablePassthrough()
-#     }
-#     | prompt
-#     | model
-#     | StrOutputParser()
-# )
-    rag_chain = ({
+    # rag_chain = ({
+    #    "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
+    #     } 
+    #     | prompt 
+    #     | model 
+    #     | StrOutputParser()
+    #     )
+    rag_chain = {
        "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-        } 
-        | prompt 
+        } | RunnablePassthrough().assign(
+        response=(
+        prompt 
         | model 
         | StrOutputParser()
+        )
         )
         
     logging.info(f"Completed! ")
@@ -274,24 +307,21 @@ def pdf_to_retriever(file_path):
     text = [element.text for element in pdf_elements if 
             'CompositeElement' in str(type(element))]
    
-
-
     summaries = summarize_text_and_tables(text, tables)
+    print(summaries)
 
+    retriever = create_retriever(text, summaries['text'], tables,  summaries['table'])
 
+    print(retriever)
 
-    all_docs=text + tables
-    text_summary = summaries['text']
-    all_summaries = text_summary + summaries['table']
+    # all_docs=text + tables
+    # text_summary = summaries['text']
+    # all_summaries = text_summary + summaries['table']
 
+    # create_retriever(text, text_summary, table, table_summary)
 
-    retriever = create_retriever(all_docs, all_summaries)
+    # retriever = create_retriever(all_docs, all_summaries)
 
-
-    # retriever = create_retriever(text, summaries['text'], tables, summaries['table'])
-    query = "What is the comparison of the composition of red meat and vegetarian protein sources"
-    docs = retriever.invoke(query)
-    check = [i for i in docs]
     
     return retriever
 
@@ -324,16 +354,16 @@ def old_retriever(pdf_hash):
     if pdf_text is None:
         print("Error: PDF not found in Redis!")
         return None
-
+    # retriever = create_retriever(documents, summaries)
     vectorstore = PGVector(
         embeddings=OpenAIEmbeddings(),
         collection_name=COLLECTION_NAME,
         connection=CONNECTION_STRING
     )
-    # Create MultiVectorRetriever
+    # Load MultiVectorRetriever
     client = get_client("redis://localhost:6379")
     store = RedisStore(client=client)
-    # id_key = "doc_id"
+    id_key = "doc_id"
 
 
     # retriever = MultiVectorRetriever(
