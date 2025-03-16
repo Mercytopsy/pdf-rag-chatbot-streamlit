@@ -24,3 +24,5 @@ tasks:
       redis-stack-server --daemonize yes
       sudo apt update
       sudo apt install -y postgresql postgresql-client
+      sudo apt update
+      sudo apt install postgresql-client -y
