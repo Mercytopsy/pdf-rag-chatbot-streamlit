@@ -5,7 +5,7 @@ This project implements a **Retrieval-Augmented Generation (RAG)** pipeline for 
 ### 🚀 Features
 
 - **Unstructured Document Processing**: Extracts text and tables from PDFs.  
-- **Redis for Raw Storage**: Stores and retrieves raw PDFs efficiently.  
+- **Redis for Raw Storage**: Stores and retrieves raw PDFs efficiently, to implement persistent storage.  
 - **PGVector for Vector Storage**: Indexes and retrieves high-dimensional embeddings for similarity search.  
 - **MultiVector Retriever**: Optimized for retrieving contextual information from multiple sources.  
 - **LLM Integration**: Uses a **GPT model** to generate responses based on retrieved context.  
@@ -18,7 +18,7 @@ This project implements a **Retrieval-Augmented Generation (RAG)** pipeline for 
 #### Libraries
 - `unstructured`
 - `pgvector`
-- `redis-py`
+- `redis`
 - `langchain`
 - `openai`
 
