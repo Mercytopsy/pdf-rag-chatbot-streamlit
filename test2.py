@@ -112,21 +112,6 @@ def initialize_retriever():
 
 ###Multivector Retriever
 
-# def create_retriever(text, text_summary, table, table_summary):
-#         """Creates a multi-vector retriever and adds documents."""
-#         client = get_client("redis://localhost:6379")
-#         store = RedisStore(client=client)
-#         id_key = "doc_id"
-
-#         vectorstore = PGVector(
-#             embeddings=OpenAIEmbeddings(),
-#             collection_name=COLLECTION_NAME,
-#             connection=CONNECTION_STRING,
-#             use_jsonb=True,
-#             )
-#         retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
-
-
 def store_docs_in_retriever(text, text_summary, table, table_summary, retriever):
     """Store text and table documents along with their summaries in the retriever."""
 
@@ -183,32 +168,47 @@ def chat_with_llm(retriever):
     prompt = ChatPromptTemplate.from_template(prompt_text)
     model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
  
-    # rag_chain = ({
-    #    "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-    #     } 
-    #     | prompt 
-    #     | model 
-    #     | StrOutputParser()
-    #     )
-    rag_chain = {
+    rag_chain = ({
        "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-        } | RunnablePassthrough().assign(
-        response=(
-        prompt 
+        } 
+        | prompt 
         | model 
         | StrOutputParser()
         )
-        )
+    # rag_chain = {
+    #    "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
+    #     } | RunnablePassthrough().assign(
+    #     response=(
+    #     prompt 
+    #     | model 
+    #     | StrOutputParser()
+    #     )
+    #     )
         
     logging.info(f"Completed! ")
 
     return rag_chain
 
+def _get_file_path(file_upload):
 
+    temp_dir = "temp"
+    os.makedirs(temp_dir, exist_ok=True)  # Ensure the directory exists
+
+    if isinstance(file_upload, str):
+        file_path = file_upload  # Already a string path
+    else:
+        file_path = os.path.join(temp_dir, file_upload.name)
+        with open(file_path, "wb") as f:
+            f.write(file_upload.getbuffer())
+            st.success(f"File saved to {file_path}")
+        return file_path
+    
 
 ### process PDF
-def process_pdf(file_path):
+def process_pdf(file_upload):
     print('Processing PDF hash info...')
+    
+    file_path =  _get_file_path(file_upload)
     pdf_hash = get_pdf_hash(file_path)
 
     retriever = initialize_retriever()
@@ -220,6 +220,7 @@ def process_pdf(file_path):
         return retriever
 
     print(f"New PDF detected. Processing... {pdf_hash}")
+ 
 
     pdf_elements = load_pdf_data(file_path)
     
@@ -244,73 +245,14 @@ def process_pdf(file_path):
 
 
 
+def invoke_chat(file_upload, message):
 
-# def load_retriever(pdf_hash):
-
-#     vectorstore = PGVector(
-#         embeddings=OpenAIEmbeddings(),
-#         collection_name=COLLECTION_NAME,
-#         connection=CONNECTION_STRING
-#     )
-#     # Load MultiVectorRetriever
-#     client = get_client("redis://localhost:6379")
-#     store = RedisStore(client=client)
-#     id_key = "doc_id"
-
-
-#     retriever = MultiVectorRetriever(
-#         vectorstore=vectorstore,
-#         docstore=store,
-#         id_key = "doc_id"  
-#     )
-#     return retriever
-
-
-# def load__vectors(file_path):
-#     print('Processing PDF hash info...')
-#     pdf_hash = get_pdf_hash(file_path)
-
-#     # Debug: Check if Redis already has the key
-#     existing = r.exists(f"pdf:{pdf_hash}")
-#     print(f"Checking Redis for hash {pdf_hash}: {'Exists' if existing else 'Not found'}")
-
-#     if existing:
-#         print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
-#         return load_retriever(pdf_hash)
-
-#     print(f"New PDF detected. Processing... {pdf_hash}")
-
-#     retriever = pdf_to_retriever(file_path)
-
-#     # Store the PDF hash in Redis
-#     r.set(f"pdf:{pdf_hash}", json.dumps({"text": "PDF processed"}))  
-
-#     # Debug: Check if Redis stored the key
-#     stored = r.exists(f"pdf:{pdf_hash}")
-#     print(f"Stored PDF hash in Redis: {'Success' if stored else 'Failed'}")
-
-#     return retriever
-
-
-
-
-
-
-def invoke_chat(file_path, message):
-    # retriever = load__vectors(file_path)
-    retriever =process_pdf(file_path)
+    retriever =process_pdf(file_upload)
     rag_chain = chat_with_llm(retriever)
     response = rag_chain.invoke(message)
     response_placeholder = st.empty()
     response_placeholder.write(response)
     return response
-
-# # Function to get full PDF from Redis
-# def fetch_full_pdf(pdf_hash):
-#     pdf_data = r.get(f"pdf:{pdf_hash}")
-#     # return pdf_data
-#     return json.loads(pdf_data)["text"] if pdf_data else None
-
 
 
 
@@ -324,19 +266,17 @@ def main():
         st.session_state.messages = []
 
  
-    # file_upload = st.sidebar.file_uploader(
-    # label="Upload", type=["pdf"], 
-    # accept_multiple_files=False,
-    # key="pdf_uploader"
-    # )
+    file_upload = st.sidebar.file_uploader(
+    label="Upload", type=["pdf"], 
+    accept_multiple_files=False,
+    key="pdf_uploader"
+    )
 
-    # if file_upload:
-    #     st.success("File uploaded successfully! Processing...")
+    if file_upload:
+        st.success("File uploaded successfully! Processing...")
+  
         
-    #     # Uncomment and ensure `create_vector_db` is implemented if required
-    #     # st.session_state["vector_db"] = create_vector_db(file_upload)
-        
-    #     st.success("File processed successfully! You can now ask your question.")
+        st.success("File processed successfully! You can now ask your question.")
 
     # Prompt for user input
     if prompt := st.chat_input("Your question"):
@@ -355,8 +295,8 @@ def main():
             with st.spinner("Writing..."):
                 user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
                 
-              
-                response_message = invoke_chat(FILE_PATH,user_message)
+                response_message = invoke_chat(file_upload, user_message)
+                #response_message = invoke_chat(FILE_PATH,user_message)
 
                 duration = time.time() - start_time
                 response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
