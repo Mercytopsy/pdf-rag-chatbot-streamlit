@@ -31,18 +31,19 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-
+# Ensure PyTorch module path is correctly set
 torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__)] 
 
-
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 
+# Initialize Redis client
 client = redis.Redis(host="localhost", port=6379, db=0)
 
 
 
 
-###Data Loading
+#Data Loading
 def load_pdf_data(file_path):
     logging.info(f"Data ready to be partitioned and loaded ")
     raw_pdf_elements = partition_pdf(
@@ -64,15 +65,14 @@ def load_pdf_data(file_path):
     logging.info(f"Pdf data finish loading, chunks now available!")
     return raw_pdf_elements
 
-
+# Generate a unique hash for a PDF file
 def get_pdf_hash(pdf_path):
     """Generate a SHA-256 hash of the PDF file content."""
     with open(pdf_path, "rb") as f:
         pdf_bytes = f.read()
     return hashlib.sha256(pdf_bytes).hexdigest()
 
-
-#summarize the data
+# Summarize extracted text and tables using LLM
 def summarize_text_and_tables(text, tables):
     logging.info("Ready to summarize data with LLM")
     prompt_text = """You are an assistant tasked with summarizing text and tables. \
@@ -88,7 +88,7 @@ def summarize_text_and_tables(text, tables):
         "table": summarize_chain.batch(tables, {"max_concurrency": 5})
     }
   
-
+#Initialize a pgvector and retriever for storing and searching documents
 def initialize_retriever():
 
     store = RedisStore(client=client)
@@ -103,7 +103,7 @@ def initialize_retriever():
     return retriever
 
 
-###Multivector Retriever
+# Store text, tables, and their summaries in the retriever
 
 def store_docs_in_retriever(text, text_summary, table, table_summary, retriever):
     """Store text and table documents along with their summaries in the retriever."""
@@ -128,8 +128,7 @@ def store_docs_in_retriever(text, text_summary, table, table_summary, retriever)
     return retriever
 
 
-
-###RAG pipeline
+# Parse the retriever output into readable format
 def parse_retriver_output(data):
     parsed_elements = []
     for element in data:
@@ -141,7 +140,7 @@ def parse_retriver_output(data):
     return parsed_elements
 
 
-###Chat with LLM
+# Chat with the LLM using retrieved context
 
 def chat_with_llm(retriever):
 
@@ -173,6 +172,7 @@ def chat_with_llm(retriever):
 
     return rag_chain
 
+# Generate temporary file path of uploaded docs
 def _get_file_path(file_upload):
 
     temp_dir = "temp"
@@ -184,11 +184,10 @@ def _get_file_path(file_upload):
         file_path = os.path.join(temp_dir, file_upload.name)
         with open(file_path, "wb") as f:
             f.write(file_upload.getbuffer())
-            st.success(f"File saved to {file_path}")
         return file_path
     
 
-### process PDF
+# Process uploaded PDF file
 def process_pdf(file_upload):
     print('Processing PDF hash info...')
     
@@ -205,7 +204,6 @@ def process_pdf(file_upload):
 
     print(f"New PDF detected. Processing... {pdf_hash}")
  
-
     pdf_elements = load_pdf_data(file_path)
     
     tables = [element.metadata.text_as_html for element in
@@ -222,15 +220,13 @@ def process_pdf(file_upload):
 
     # Debug: Check if Redis stored the key
     stored = client.exists(f"pdf:{pdf_hash}")
-    #remove temp directory
-    shutil.rmtree("dir")
+    # #remove temp directory
+    # shutil.rmtree("dir")
     print(f"Stored PDF hash in Redis: {'Success' if stored else 'Failed'}")
     return enriched_retriever
 
 
-
-
-
+#Invoke chat with LLM based on uploaded PDF and user query
 def invoke_chat(file_upload, message):
 
     retriever =process_pdf(file_upload)
@@ -241,10 +237,9 @@ def invoke_chat(file_upload, message):
     return response
 
 
-
-
+# Main application interface using Streamlit
 def main():
-    # streamlit_initialize()
+  
     st.title("PDF Chat Assistant ")
     logging.info("App started")
 
@@ -258,11 +253,8 @@ def main():
     key="pdf_uploader"
     )
 
-    if file_upload:
-        st.success("File uploaded successfully! Processing...")
-  
-        
-        st.success("File processed successfully! You can now ask your question.")
+    if file_upload:     
+        st.success("File uploaded successfully! You can now ask your question.")
 
     # Prompt for user input
     if prompt := st.chat_input("Your question"):
@@ -278,12 +270,10 @@ def main():
         with st.chat_message("assistant"):
             start_time = time.time()
             logging.info("Generating response...")
-            with st.spinner("Writing..."):
-                user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
-                
+            with st.spinner("Processing..."):
+                user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])           
                 response_message = invoke_chat(file_upload, user_message)
-                #response_message = invoke_chat(FILE_PATH,user_message)
-
+        
                 duration = time.time() - start_time
                 response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
 
