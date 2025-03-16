@@ -34,13 +34,6 @@ load_dotenv()
 
 torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__)] 
 
-PERSIST_DIRECTORY = os.path.join("data", "vectors")
-
-FILE_PATH = Path("data/hbspapers_48__1.pdf") 
-
-# FILE_PATH = Path("data/layout-parser-paper.pdf") 
-
-
 
 logging.basicConfig(level=logging.INFO)
 
