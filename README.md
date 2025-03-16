@@ -13,3 +13,18 @@ PGVector for Vector Storage: Indexes and retrieves high-dimensional embeddings f
 MultiVector Retriever: Optimized for retrieving contextual information from multiple sources.
 
 LLM Integration: Uses a GPT model to generate responses based on retrieved context.
+
+
+🛠️ Tech Stack
+
+Programming Language: Python
+
+Libraries: unstructured, pgvector, redis-py, langchain, openai
+
+Databases:
+
+Redis (for raw PDFs)
+
+PostgreSQL + PGVector (for embeddings)
+
+LLM: GPT (via OpenAI API or local model)
