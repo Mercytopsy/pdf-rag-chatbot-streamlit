@@ -168,15 +168,6 @@ def chat_with_llm(retriever):
         | model 
         | StrOutputParser()
         )
-    # rag_chain = {
-    #    "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-    #     } | RunnablePassthrough().assign(
-    #     response=(
-    #     prompt 
-    #     | model 
-    #     | StrOutputParser()
-    #     )
-    #     )
         
     logging.info(f"Completed! ")
 
@@ -231,6 +222,8 @@ def process_pdf(file_upload):
 
     # Debug: Check if Redis stored the key
     stored = client.exists(f"pdf:{pdf_hash}")
+    #remove temp directory
+    shutil.rmtree("dir")
     print(f"Stored PDF hash in Redis: {'Success' if stored else 'Failed'}")
     return enriched_retriever
 
