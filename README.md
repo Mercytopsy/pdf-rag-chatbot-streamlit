@@ -2,7 +2,7 @@
 
 This project implements a **Retrieval-Augmented Generation (RAG)** pipeline for efficient document processing and knowledge retrieval. It extracts text and tables from PDFs using the **Unstructured** library, stores raw PDFs in **Redis**, and indexes extracted embeddings in **PGVector** for semantic search. The system leverages **MultiVector Retriever** for context retrieval before querying an **LLM (GPT model)**.
 
-![My Image](Architectural Diagram.png)
+![My Image](https://github.com/Mercytopsy/pdf-rag-chatbot-streamlit/blob/main/Architectural%20Diagram.png)
 
 
 ### 🚀 Features
