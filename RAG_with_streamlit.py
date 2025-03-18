@@ -8,7 +8,6 @@ from langchain.schema.runnable import RunnablePassthrough,RunnableLambda
 
 from langchain_postgres.vectorstores import PGVector
 from database import COLLECTION_NAME, CONNECTION_STRING
-from langchain_community.utilities.redis import get_client
 from langchain_community.storage import RedisStore
 from langchain.schema.document import Document
 from langchain_openai import OpenAIEmbeddings
@@ -16,18 +15,11 @@ from langchain.retrievers.multi_vector import MultiVectorRetriever
 from pathlib import Path
 from IPython.display import display, HTML
 from base64 import b64decode
-import hashlib
-import chromadb
-import tempfile
-import shutil
-import streamlit as st
+import os, hashlib, shutil, uuid, json, time
+import torch, redis, streamlit as st
 import logging
-import uuid
-import json
-import time
-import torch
-import redis
-import os
+
+
 from dotenv import load_dotenv
 load_dotenv()
 
