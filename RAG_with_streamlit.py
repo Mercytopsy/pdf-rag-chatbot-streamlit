@@ -193,7 +193,7 @@ def process_pdf(file_upload):
 
     if existing:
         print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
-        return retriever
+        return load_retriever
 
     print(f"New PDF detected. Processing... {pdf_hash}")
  
