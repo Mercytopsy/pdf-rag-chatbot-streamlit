@@ -91,8 +91,8 @@ def initialize_retriever():
             connection=CONNECTION_STRING,
             use_jsonb=True,
             )
-    retriever = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
-    return retriever
+    retrieval_loader = MultiVectorRetriever(vectorstore=vectorstore, docstore=store, id_key="doc_id")
+    return retrieval_loader
 
 
 # Store text, tables, and their summaries in the retriever
@@ -120,15 +120,16 @@ def store_docs_in_retriever(text, text_summary, table, table_summary, retriever)
     return retriever
 
 
-# Parse the retriever output into readable format
+# Parse the retriever output
 def parse_retriver_output(data):
     parsed_elements = []
     for element in data:
-        if 'CompositeElement' in str(type(element)):
-            parsed_elements.append(element.text)
-        else:
-            parsed_elements.append(element)
-            
+        # Decode bytes to string if necessary
+        if isinstance(element, bytes):
+            element = element.decode("utf-8")
+        
+        parsed_elements.append(element)
+    
     return parsed_elements
 
 
@@ -186,7 +187,7 @@ def process_pdf(file_upload):
     file_path =  _get_file_path(file_upload)
     pdf_hash = get_pdf_hash(file_path)
 
-    retriever = initialize_retriever()
+    load_retriever = initialize_retriever()
     existing = client.exists(f"pdf:{pdf_hash}")
     print(f"Checking Redis for hash {pdf_hash}: {'Exists' if existing else 'Not found'}")
 
@@ -205,7 +206,7 @@ def process_pdf(file_upload):
             'CompositeElement' in str(type(element))]
    
     summaries = summarize_text_and_tables(text, tables)
-    enriched_retriever = store_docs_in_retriever(text, summaries['text'], tables,  summaries['table'], retriever)
+    retriever = store_docs_in_retriever(text, summaries['text'], tables,  summaries['table'], load_retriever)
     
     # Store the PDF hash in Redis
     client.set(f"pdf:{pdf_hash}", json.dumps({"text": "PDF processed"}))  
@@ -215,7 +216,7 @@ def process_pdf(file_upload):
     # #remove temp directory
     # shutil.rmtree("dir")
     print(f"Stored PDF hash in Redis: {'Success' if stored else 'Failed'}")
-    return enriched_retriever
+    return retriever
 
 
 #Invoke chat with LLM based on uploaded PDF and user query
