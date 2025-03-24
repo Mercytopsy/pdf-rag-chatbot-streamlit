@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: streamlit_app
+    ports:
+      - "8501:8501"
+    depends_on:
+      redis-stack:
+        condition: service_healthy  # Wait for Redis to be ready
+      db:
+        condition: service_healthy  # Wait for PostgreSQL to be ready
+    env_file:
+      - .env  # Load environment variables from .env file
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+      - DATABASE_URL=postgresql+psycopg://${PG_VECTOR_USER}:${PG_VECTOR_PASSWORD}@${PG_VECTOR_HOST}:5432/${PGDATABASE}
+    networks:
+      - app_network
+
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: redis_stack
+    restart: always
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  db:
+    image: pgvector/pgvector:pg16  # Use PostgreSQL with pgvector
+    container_name: pgvector_db
+    restart: always
+    env_file:
+      - .env  # Load credentials from .env file
+    environment:
+      POSTGRES_USER: ${PG_VECTOR_USER}
+      POSTGRES_PASSWORD: ${PG_VECTOR_PASSWORD}
+      POSTGRES_DB: ${PGDATABASE}
+    ports:
+      - "6024:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data  # Persist database
+      - ./init-scripts:/docker-entrypoint-initdb.d  # Auto-run SQL scripts
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_VECTOR_USER} -d ${PGDATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgvector_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
