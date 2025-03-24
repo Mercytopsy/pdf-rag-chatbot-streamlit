@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8501
 
 
-ENTRYPOINT ["bash", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
+ENTRYPOINT ["bash", "-c", "streamlit run RAG_with_streamlit.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
 
 
 

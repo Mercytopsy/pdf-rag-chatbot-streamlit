@@ -18,10 +18,13 @@ from base64 import b64decode
 import os, hashlib, shutil, uuid, json, time
 import torch, redis, streamlit as st
 import logging
+import openai
 
 
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
+
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 # Ensure PyTorch module path is correctly set
 torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__)] 
@@ -30,7 +33,12 @@ torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__
 logging.basicConfig(level=logging.INFO)
 
 # Initialize Redis client
-client = redis.Redis(host="localhost", port=6379, db=0)
+# client = redis.Redis(host="localhost", port=6379, db=0)
+
+redis_host = os.getenv("REDIS_HOST", "redis-stack")
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+
+client = redis.Redis(host=redis_host, port=redis_port, db=0)
 
 
 
@@ -72,7 +80,7 @@ def summarize_text_and_tables(text, tables):
                     You are to give a concise summary of the table or text and do nothing else. 
                     Table or text chunk: {element} """
     prompt = ChatPromptTemplate.from_template(prompt_text)
-    model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
+    model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini", openai_api_key=openai_api_key)
     summarize_chain = {"element": RunnablePassthrough()}| prompt | model | StrOutputParser()
     logging.info(f"{model} done with summarization")
     return {
@@ -151,7 +159,7 @@ def chat_with_llm(retriever):
                 """
 
     prompt = ChatPromptTemplate.from_template(prompt_text)
-    model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
+    model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini", openai_api_key=openai_api_key)
  
     rag_chain = ({
        "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
